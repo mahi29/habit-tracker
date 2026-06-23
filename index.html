@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0e1116" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>Habits</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --surface: #171c24;
+    --surface-2: #1f2630;
+    --border: #2a323d;
+    --text: #e8edf3;
+    --text-dim: #93a0ad;
+    --accent: #34c759;        /* done green */
+    --accent-deep: #1f7a39;
+    --accent-soft: rgba(52, 199, 89, 0.16);
+    --danger: #ff5d52;
+    --radius: 20px;
+    --tap: rgba(255,255,255,0.06);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+    overflow: hidden;            /* Today view fills the screen — no page scroll */
+    overscroll-behavior: none;
+  }
+
+  /* App shell — fills the viewport; also the element we shift for burn-in protection */
+  #app {
+    max-width: 1100px;          /* uses the full Fire 7 landscape width (1024px) */
+    margin: 0 auto;
+    height: 100vh;
+    height: 100dvh;
+    padding: clamp(10px, 3vw, 24px);
+    display: flex;
+    flex-direction: column;
+    transition: transform 6s linear, filter 1.2s ease, opacity 1.2s ease;
+    will-change: transform;
+  }
+
+  /* Night dim mode */
+  body.night #app { filter: brightness(0.45) saturate(0.85); }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: clamp(16px, 3vw, 26px);
+  }
+  .date-block { display: flex; flex-direction: column; line-height: 1.15; }
+  .date-main { font-size: clamp(20px, 5vw, 28px); font-weight: 700; letter-spacing: -0.01em; }
+  .date-sub { font-size: 13px; color: var(--text-dim); font-weight: 500; margin-top: 2px; }
+  .spacer { flex: 1; }
+
+  .counter {
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 8px 13px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .counter.complete { color: var(--accent); border-color: var(--accent-deep); background: var(--accent-soft); }
+
+  .iconbtn {
+    width: 46px; height: 46px;
+    flex: 0 0 auto;
+    display: grid; place-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, transform 0.08s;
+  }
+  .iconbtn:active { transform: scale(0.92); background: var(--surface-2); }
+  .iconbtn svg { width: 22px; height: 22px; }
+
+  /* ---------- Today grid ---------- */
+  /* Fills remaining height; columns adapt to habit count + orientation (--cols set in JS),
+     rows stretch equally so every habit is visible at a glance with no scrolling. */
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(var(--cols, 2), 1fr);
+    grid-auto-rows: 1fr;
+    gap: clamp(10px, 2vw, 16px);
+    flex: 1;
+    min-height: 0;
+  }
+  .tile {
+    position: relative;
+    min-height: 0;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.18s ease, border-color 0.18s ease, transform 0.09s ease;
+    overflow: hidden;
+  }
+  .tile:active { transform: scale(0.97); }
+  .tile .name {
+    font-size: clamp(16px, 2.6vw, 24px);
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    max-width: 100%;
+    padding: 0 6px;
+  }
+  .tile .name .emoji { font-size: 1.25em; line-height: 1; flex: 0 0 auto; }
+  .tile .name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile.done {
+    background: linear-gradient(160deg, rgba(52,199,89,0.42), rgba(52,199,89,0.22));
+    border-color: var(--accent);
+  }
+  .tile.done .name .label { color: #eafff0; }
+
+  .empty-hint {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--text-dim);
+    padding: 48px 16px;
+    line-height: 1.6;
+  }
+
+  /* All-done flourish / quote slot */
+  #flourish {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 15px;
+    color: var(--accent);
+    min-height: 18px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  #flourish.show { opacity: 1; }
+
+  /* ---------- Month / History view ---------- */
+  .month-head {
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px; margin-bottom: 18px;
+  }
+  .month-head .title { font-size: 19px; font-weight: 700; min-width: 160px; text-align: center; }
+
+  .month-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; }
+  table.month {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    font-variant-numeric: tabular-nums;
+  }
+  table.month th, table.month td { padding: 0; text-align: center; }
+  table.month thead th {
+    font-size: 11px; font-weight: 600; color: var(--text-dim);
+    height: 28px; min-width: 26px;
+  }
+  table.month thead th.today { color: var(--accent); }
+  .habit-label {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--bg);
+    text-align: left;
+    font-size: 14px; font-weight: 600;
+    padding: 0 12px 0 4px;
+    min-width: 108px; max-width: 140px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  thead .habit-label { color: var(--text-dim); font-weight: 600; }
+  table.month tbody td { height: 32px; }
+  .cell { width: 22px; height: 22px; margin: 0 auto; border-radius: 7px; background: var(--surface); border: 1px solid var(--border); }
+  td.col-today .cell { box-shadow: 0 0 0 2px var(--accent-deep); }
+  td.future .cell { opacity: 0.35; }
+  .cell.on { background: var(--accent); border-color: var(--accent); }
+  .row-total { font-size: 13px; font-weight: 600; color: var(--text-dim); padding-left: 12px; white-space: nowrap; position: sticky; right: 0; background: var(--bg); }
+
+  /* ---------- Settings / sheets ---------- */
+  .view { display: none; flex-direction: column; flex: 1; min-height: 0; }
+  .view.active { display: flex; }
+  /* Today fills the screen with no scroll; Month & Settings scroll inside themselves */
+  #view-month.active, #view-settings.active { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 22px 0 10px; font-weight: 700; }
+
+  .habit-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .habit-row input.rename {
+    flex: 1; min-width: 0;
+    background: transparent; border: none; color: var(--text);
+    font-size: 16px; font-weight: 600; padding: 6px 0;
+  }
+  .habit-row input.rename:focus { outline: none; border-bottom: 1px solid var(--accent-deep); }
+  .reorder { display: flex; flex-direction: column; }
+  .icon-btn { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); font-size: 24px; line-height: 1; display: grid; place-items: center; cursor: pointer; }
+  .icon-btn:active { transform: scale(0.92); }
+  .mini { width: 38px; height: 34px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); display: grid; place-items: center; cursor: pointer; }
+  .mini:active { transform: scale(0.92); }
+  .mini.del { color: var(--danger); }
+
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 10px; }
+  .field label { font-size: 15px; font-weight: 500; }
+  .field input[type="number"] { width: 84px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); font-size: 16px; border-radius: 10px; padding: 9px 10px; text-align: center; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 16px; font-weight: 600;
+    padding: 15px; border-radius: 14px;
+    cursor: pointer; margin-top: 8px;
+    transition: transform 0.08s, background 0.15s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary { background: var(--accent-deep); border-color: var(--accent-deep); color: #eafff0; }
+  .btn.ghost { background: transparent; }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .btn { margin-top: 0; }
+
+  .add-row { display: flex; gap: 10px; margin-top: 4px; }
+  .add-row input {
+    flex: 1; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-size: 16px; padding: 14px; border-radius: 14px;
+  }
+  .add-row input:focus { outline: none; border-color: var(--accent-deep); }
+  .add-row button { flex: 0 0 auto; width: 56px; border-radius: 14px; background: var(--accent-deep); border: none; color: #fff; font-size: 26px; cursor: pointer; }
+
+  .hidden { display: none !important; }
+  footer.note { color: var(--text-dim); font-size: 12px; text-align: center; margin-top: 22px; line-height: 1.5; }
+
+  /* ---------- Emoji picker overlay ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.62);
+    display: grid; place-items: center;
+    padding: 20px;
+  }
+  .picker {
+    width: 100%; max-width: 380px; max-height: 78vh;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+  }
+  .picker .picker-title { font-size: 15px; font-weight: 700; color: var(--text-dim); text-align: center; }
+  .picker-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; overflow-y: auto; }
+  .picker-grid button {
+    aspect-ratio: 1 / 1; min-height: 46px;
+    border-radius: 12px; border: 1px solid var(--border);
+    background: var(--surface-2); font-size: 25px; line-height: 1;
+    display: grid; place-items: center; cursor: pointer;
+  }
+  .picker-grid button:active { transform: scale(0.9); }
+  .picker-grid button.none { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+
+  /* ---------- Fire 7 (1024x600) & small tablets ---------- */
+  /* Short landscape: reclaim vertical space so tiles stay big */
+  @media (max-height: 640px) {
+    header { margin-bottom: 10px; }
+    .date-main { font-size: 22px; }
+    .date-sub { display: none; }
+    .iconbtn { width: 42px; height: 42px; }
+  }
+  /* Narrow widths (portrait Fire 7 ~600px): tighten the month grid */
+  @media (max-width: 760px) {
+    .cell { width: 18px; height: 18px; }
+    table.month thead th { min-width: 22px; }
+    .habit-label { min-width: 92px; max-width: 120px; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ====== TODAY VIEW ====== -->
+  <section id="view-today" class="view active">
+    <header>
+      <div class="date-block">
+        <span class="date-main" id="todayMain">—</span>
+        <span class="date-sub" id="todaySub"></span>
+      </div>
+      <div class="spacer"></div>
+      <div class="counter" id="counter">0/0</div>
+      <button class="iconbtn" id="toMonth" aria-label="Month history">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+      </button>
+      <button class="iconbtn" id="toSettings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </header>
+    <div id="grid"></div>
+    <div id="flourish"></div>
+  </section>
+
+  <!-- ====== MONTH / HISTORY VIEW ====== -->
+  <section id="view-month" class="view">
+    <header>
+      <button class="iconbtn" id="monthBack" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="spacer"></div>
+      <div class="date-block" style="align-items:center"><span class="date-main">History</span></div>
+      <div class="spacer"></div>
+      <div style="width:46px"></div>
+    </header>
+    <div class="month-head">
+      <button class="iconbtn" id="prevMonth" aria-label="Previous month">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="title" id="monthTitle">—</div>
+      <button class="iconbtn" id="nextMonth" aria-label="Next month">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+    </div>
+    <div class="month-scroll">
+      <table class="month" id="monthTable"></table>
+    </div>
+    <footer class="note" id="monthEmpty"></footer>
+  </section>
+
+  <!-- ====== SETTINGS VIEW ====== -->
+  <section id="view-settings" class="view">
+    <header>
+      <button class="iconbtn" id="settingsBack" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="spacer"></div>
+      <div class="date-block" style="align-items:center"><span class="date-main">Settings</span></div>
+      <div class="spacer"></div>
+      <div style="width:46px"></div>
+    </header>
+
+    <div class="section-title">Habits</div>
+    <div id="habitList"></div>
+    <div class="add-row">
+      <input id="newHabit" type="text" placeholder="Add a habit…" maxlength="40" autocomplete="off" />
+      <button id="addHabit" aria-label="Add habit">+</button>
+    </div>
+
+    <div class="section-title">Night dimming</div>
+    <div class="field">
+      <label for="dimStart">Dim after (hour, 0–23)</label>
+      <input id="dimStart" type="number" min="0" max="23" />
+    </div>
+    <div class="field">
+      <label for="dimEnd">Back to bright at (hour)</label>
+      <input id="dimEnd" type="number" min="0" max="23" />
+    </div>
+
+    <div class="section-title">Backup</div>
+    <div class="btn-row">
+      <button class="btn" id="exportBtn">⬇︎ Export</button>
+      <button class="btn" id="importBtn">⬆︎ Import</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json,.json" class="hidden" />
+
+    <footer class="note">
+      Data is stored on this device only. Export regularly to keep a backup.
+    </footer>
+  </section>
+
+  <!-- ====== EMOJI PICKER ====== -->
+  <div id="emojiPicker" class="overlay hidden">
+    <div class="picker">
+      <div class="picker-title" id="pickerTitle">Choose an icon</div>
+      <div class="picker-grid" id="emojiGrid"></div>
+      <button class="btn ghost" id="emojiClose">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  /* ============================================================
+   * State layer
+   * ========================================================== */
+  const STORAGE_KEY = "habitTracker:v1";
+
+  const DEFAULT_STATE = () => ({
+    habits: [
+      { id: uid(), name: "Workout",      order: 0, archived: false, icon: "🏋️" },
+      { id: uid(), name: "Wake up",      order: 1, archived: false, icon: "☀️" },
+      { id: uid(), name: "Clean litter", order: 2, archived: false, icon: "🐱" },
+      { id: uid(), name: "Read",         order: 3, archived: false, icon: "📖" },
+      { id: uid(), name: "Journal",      order: 4, archived: false, icon: "📓" },
+      { id: uid(), name: "Eat clean",    order: 5, archived: false, icon: "🥗" },
+      { id: uid(), name: "Floss",        order: 6, archived: false, icon: "🦷" },
+    ],
+    log: {},
+    settings: { nightDimStartHour: 21, nightDimEndHour: 7 },
+  });
+
+  let state = loadState();
+
+  function uid() {
+    return "h" + Math.abs(hashStr(String(performance.now()) + ":" + (uid._n = (uid._n || 0) + 1))).toString(36);
+  }
+  function hashStr(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = (h * 33) ^ s.charCodeAt(i); return h | 0; }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return DEFAULT_STATE();
+      const parsed = JSON.parse(raw);
+      // Shape guard / migration safety
+      if (!parsed.habits || !parsed.log) return DEFAULT_STATE();
+      parsed.settings = Object.assign({ nightDimStartHour: 21, nightDimEndHour: 7 }, parsed.settings || {});
+      parsed.habits.forEach((h, i) => { if (typeof h.order !== "number") h.order = i; if (h.archived == null) h.archived = false; });
+      return parsed;
+    } catch (e) {
+      console.warn("Failed to load state, starting fresh.", e);
+      return DEFAULT_STATE();
+    }
+  }
+
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    catch (e) { console.warn("Failed to save state.", e); }
+  }
+
+  /* ============================================================
+   * Date helpers — local time, midnight boundary
+   * ========================================================== */
+  function localKey(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  function todayKey() { return localKey(new Date()); }
+
+  const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  /* ============================================================
+   * Emoji icons — auto-guess from name, plus a picker palette
+   * ========================================================== */
+  const ICON_GUESS = [
+    [["workout","gym","exercise","lift","weights","strength","train"], "🏋️"],
+    [["run","jog","cardio"], "🏃"],
+    [["walk","steps","stroll"], "🚶"],
+    [["yoga","meditat","breath","mindful","calm"], "🧘"],
+    [["stretch","mobility"], "🤸"],
+    [["bike","cycl","spin"], "🚴"],
+    [["swim"], "🏊"],
+    [["read","book"], "📖"],
+    [["journal","diary"], "📓"],
+    [["write","writing","note"], "📝"],
+    [["study","learn","class","course","revise"], "📚"],
+    [["code","program","leetcode","dev"], "💻"],
+    [["draw","art","paint","sketch"], "🎨"],
+    [["music","guitar","piano","practice","instrument","sing"], "🎸"],
+    [["wake","morning","sunrise","rise","early"], "☀️"],
+    [["alarm"], "⏰"],
+    [["sleep","bed","night","lights out","rest"], "😴"],
+    [["shower","bath"], "🚿"],
+    [["brush","teeth","floss","dental","tooth"], "🦷"],
+    [["med","pill","vitamin","supplement"], "💊"],
+    [["skin","moistur","lotion"], "🧴"],
+    [["eat clean","clean eat","diet","nutrition","healthy","salad","veg","greens"], "🥗"],
+    [["fruit","apple"], "🍎"],
+    [["water","hydrate","drink"], "💧"],
+    [["coffee"], "☕"],
+    [["tea"], "🍵"],
+    [["litter","cat","scoop","kitty"], "🐱"],
+    [["dog","puppy","pet"], "🐶"],
+    [["clean","tidy","chore","dishes","vacuum","dust","wash"], "🧹"],
+    [["laundry"], "🧺"],
+    [["plant","garden","grow","flower"], "🪴"],
+    [["gratitude","thank","grateful","pray"], "🙏"],
+    [["no phone","screen","social","scroll","phone"], "📵"],
+    [["save","budget","money","finance","invest","expense"], "💰"],
+    [["goal","focus","deep work"], "🎯"],
+    [["love","heart","health"], "❤️"],
+  ];
+  function guessIcon(name) {
+    const n = (name || "").toLowerCase();
+    for (const [keys, emo] of ICON_GUESS) { if (keys.some(k => n.includes(k))) return emo; }
+    return "";
+  }
+  function iconForHabit(h) { return h.icon || guessIcon(h.name) || ""; }
+
+  // Palette shown in the Settings icon picker
+  const EMOJI_SET = [
+    "🏋️","🏃","🚶","🧘","🤸","🚴","🏊","💪",
+    "📖","📚","📓","📝","💻","🎨","🎸","🗣️",
+    "☀️","⏰","🌙","😴","🛏️","🚿","🦷","🧴",
+    "🥗","🍎","🥦","💧","☕","🍵","🔥","🧊",
+    "🐱","🐶","🧹","🧺","🪴","🌱","🙏","📵",
+    "❤️","⭐","✅","🎯","💰","🎵","🧠","✨",
+  ];
+
+  /* ============================================================
+   * Derived data
+   * ========================================================== */
+  function activeHabits() {
+    return state.habits.filter(h => !h.archived).sort((a, b) => a.order - b.order);
+  }
+  function doneSet(dateKey) { return new Set(state.log[dateKey] || []); }
+  function isDone(dateKey, habitId) { return (state.log[dateKey] || []).indexOf(habitId) !== -1; }
+
+  function toggle(dateKey, habitId) {
+    const arr = state.log[dateKey] || (state.log[dateKey] = []);
+    const i = arr.indexOf(habitId);
+    if (i === -1) arr.push(habitId); else arr.splice(i, 1);
+    if (arr.length === 0) delete state.log[dateKey];
+    saveState();
+  }
+
+  /* ============================================================
+   * View router
+   * ========================================================== */
+  const views = {
+    today: document.getElementById("view-today"),
+    month: document.getElementById("view-month"),
+    settings: document.getElementById("view-settings"),
+  };
+  let currentView = "today";
+
+  function show(view) {
+    currentView = view;
+    Object.keys(views).forEach(k => views[k].classList.toggle("active", k === view));
+    if (view === "today") renderToday();
+    if (view === "month") renderMonth();
+    if (view === "settings") renderSettings();
+    window.scrollTo(0, 0);
+  }
+
+  /* ============================================================
+   * TODAY VIEW
+   * ========================================================== */
+  const grid = document.getElementById("grid");
+  const counterEl = document.getElementById("counter");
+  const flourishEl = document.getElementById("flourish");
+  let renderedDay = todayKey();
+
+  // Choose a column count so all habits fill the screen at a glance (no scrolling).
+  // Landscape (Fire 7 on a stand = 1024x600) favors wider grids; portrait stays 2-up.
+  function bestCols(n) {
+    const landscape = window.innerWidth >= window.innerHeight;
+    if (landscape) {
+      const table = { 1:1, 2:2, 3:3, 4:2, 5:3, 6:3, 7:4, 8:4 };
+      return table[n] || Math.min(5, Math.ceil(Math.sqrt(n * 1.6)));
+    }
+    return n <= 1 ? 1 : 2;
+  }
+  function applyGridCols() {
+    grid.style.setProperty("--cols", bestCols(activeHabits().length || 1));
+  }
+
+  const FLOURISHES = [
+    "All done. Nice. ✨",
+    "Perfect day. 🌙",
+    "Every box ticked. 💪",
+    "Clean sweep. 👏",
+  ];
+
+  function renderToday() {
+    renderedDay = todayKey();
+    const now = new Date();
+    document.getElementById("todayMain").textContent =
+      `${WEEKDAYS[now.getDay()].slice(0,3)}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
+    document.getElementById("todaySub").textContent = WEEKDAYS[now.getDay()];
+
+    const habits = activeHabits();
+    const done = doneSet(renderedDay);
+    applyGridCols();
+    grid.innerHTML = "";
+
+    if (habits.length === 0) {
+      const hint = document.createElement("div");
+      hint.className = "empty-hint";
+      hint.innerHTML = "No habits yet.<br>Tap the ⚙ gear to add some.";
+      grid.appendChild(hint);
+    } else {
+      habits.forEach(h => {
+        const tile = document.createElement("button");
+        tile.className = "tile" + (done.has(h.id) ? " done" : "");
+        tile.innerHTML =
+          `<span class="name"><span class="emoji"></span><span class="label"></span></span>`;
+        const ic = iconForHabit(h);
+        const emojiEl = tile.querySelector(".emoji");
+        emojiEl.textContent = ic;
+        if (!ic) emojiEl.style.display = "none";
+        tile.querySelector(".label").textContent = h.name;
+        tile.addEventListener("click", () => {
+          toggle(todayKey(), h.id);
+          renderToday();
+        });
+        grid.appendChild(tile);
+      });
+    }
+
+    const total = habits.length;
+    const count = habits.filter(h => done.has(h.id)).length;
+    counterEl.textContent = `${count}/${total}`;
+    counterEl.classList.toggle("complete", total > 0 && count === total);
+
+    // All-done flourish (future quote slot)
+    if (total > 0 && count === total) {
+      flourishEl.textContent = FLOURISHES[(count + now.getDate()) % FLOURISHES.length];
+      flourishEl.classList.add("show");
+    } else {
+      flourishEl.classList.remove("show");
+    }
+  }
+
+  /* ============================================================
+   * MONTH / HISTORY VIEW
+   * ========================================================== */
+  let monthCursor = (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })();
+  const monthTable = document.getElementById("monthTable");
+  const monthTitle = document.getElementById("monthTitle");
+  const monthEmpty = document.getElementById("monthEmpty");
+
+  function renderMonth() {
+    const { y, m } = monthCursor;
+    monthTitle.textContent = `${MONTHS[m]} ${y}`;
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const habits = activeHabits();
+    const tKey = todayKey();
+    const todayD = new Date();
+    const isCurrentMonth = (y === todayD.getFullYear() && m === todayD.getMonth());
+
+    // Disable next button past current month
+    document.getElementById("nextMonth").style.visibility =
+      (y > todayD.getFullYear() || (y === todayD.getFullYear() && m >= todayD.getMonth())) ? "hidden" : "visible";
+
+    if (habits.length === 0) {
+      monthTable.innerHTML = "";
+      monthEmpty.textContent = "Add some habits to start building history.";
+      return;
+    }
+    monthEmpty.textContent = "";
+
+    // Build header
+    let thead = "<thead><tr><th class='habit-label'>Habit</th>";
+    for (let d = 1; d <= daysInMonth; d++) {
+      const cellKey = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const cls = (cellKey === tKey) ? " class='today'" : "";
+      thead += `<th${cls}>${d}</th>`;
+    }
+    thead += "<th class='row-total'>✓</th></tr></thead>";
+
+    // Build body
+    let tbody = "<tbody>";
+    habits.forEach(h => {
+      let rowDone = 0;
+      let row = `<tr><td class="habit-label"></td>`;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const cellKey = `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+        const on = isDone(cellKey, h.id);
+        if (on) rowDone++;
+        const future = isCurrentMonth ? (d > todayD.getDate()) : (y > todayD.getFullYear() || (y === todayD.getFullYear() && m > todayD.getMonth()));
+        const tdCls = [cellKey === tKey ? "col-today" : "", future ? "future" : ""].filter(Boolean).join(" ");
+        row += `<td class="${tdCls}"><div class="cell ${on ? "on" : ""}"></div></td>`;
+      }
+      row += `<td class="row-total">${rowDone}</td></tr>`;
+      tbody += row;
+    });
+    tbody += "</tbody>";
+
+    monthTable.innerHTML = thead + tbody;
+    // Fill in habit names safely (avoid HTML injection from names)
+    const labels = monthTable.querySelectorAll("tbody .habit-label");
+    habits.forEach((h, i) => {
+      if (!labels[i]) return;
+      const ic = iconForHabit(h);
+      labels[i].textContent = (ic ? ic + "  " : "") + h.name;
+    });
+  }
+
+  /* ============================================================
+   * SETTINGS VIEW
+   * ========================================================== */
+  const habitList = document.getElementById("habitList");
+
+  function renderSettings() {
+    const habits = activeHabits();
+    habitList.innerHTML = "";
+    habits.forEach((h, idx) => {
+      const row = document.createElement("div");
+      row.className = "habit-row";
+
+      const reorder = document.createElement("div");
+      reorder.className = "reorder";
+      reorder.style.gap = "4px";
+      const up = miniBtn("▲", () => move(h.id, -1));
+      const down = miniBtn("▼", () => move(h.id, +1));
+      up.disabled = idx === 0; up.style.opacity = idx === 0 ? 0.3 : 1;
+      down.disabled = idx === habits.length - 1; down.style.opacity = idx === habits.length - 1 ? 0.3 : 1;
+      reorder.appendChild(up); reorder.appendChild(down);
+
+      const iconBtn = document.createElement("button");
+      iconBtn.className = "icon-btn";
+      const ic = iconForHabit(h);
+      iconBtn.textContent = ic || "☆";
+      iconBtn.style.opacity = ic ? "1" : "0.45";
+      iconBtn.title = "Choose icon";
+      iconBtn.addEventListener("click", () => openPicker(h));
+
+      const input = document.createElement("input");
+      input.className = "rename";
+      input.type = "text";
+      input.value = h.name;
+      input.maxLength = 40;
+      input.addEventListener("change", () => {
+        const v = input.value.trim();
+        if (v) { h.name = v; saveState(); } else { input.value = h.name; }
+      });
+
+      const del = miniBtn("🗑", () => {
+        if (confirm(`Remove "${h.name}" from today's screen? Past history is kept.`)) {
+          h.archived = true; saveState(); renderSettings();
+        }
+      });
+      del.classList.add("del");
+
+      row.appendChild(reorder);
+      row.appendChild(iconBtn);
+      row.appendChild(input);
+      row.appendChild(del);
+      habitList.appendChild(row);
+    });
+
+    document.getElementById("dimStart").value = state.settings.nightDimStartHour;
+    document.getElementById("dimEnd").value = state.settings.nightDimEndHour;
+  }
+
+  function miniBtn(label, onClick) {
+    const b = document.createElement("button");
+    b.className = "mini";
+    b.textContent = label;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function move(id, dir) {
+    const habits = activeHabits();
+    const idx = habits.findIndex(h => h.id === id);
+    const swapIdx = idx + dir;
+    if (swapIdx < 0 || swapIdx >= habits.length) return;
+    const a = habits[idx], b = habits[swapIdx];
+    const tmp = a.order; a.order = b.order; b.order = tmp;
+    saveState();
+    renderSettings();
+  }
+
+  function addHabit() {
+    const inp = document.getElementById("newHabit");
+    const name = inp.value.trim();
+    if (!name) return;
+    const maxOrder = state.habits.reduce((mx, h) => Math.max(mx, h.order), -1);
+    state.habits.push({ id: uid(), name, order: maxOrder + 1, archived: false, icon: guessIcon(name) });
+    inp.value = "";
+    saveState();
+    renderSettings();
+  }
+
+  /* ---- Emoji picker ---- */
+  const emojiOverlay = document.getElementById("emojiPicker");
+  const emojiGrid = document.getElementById("emojiGrid");
+  let pickerTarget = null;
+  let pickerBuilt = false;
+
+  function buildEmojiGrid() {
+    if (pickerBuilt) return;
+    // "None" clears the icon back to the auto-guess (or nothing)
+    const none = document.createElement("button");
+    none.className = "none";
+    none.textContent = "None";
+    none.addEventListener("click", () => choose(""));
+    emojiGrid.appendChild(none);
+    EMOJI_SET.forEach(e => {
+      const b = document.createElement("button");
+      b.textContent = e;
+      b.addEventListener("click", () => choose(e));
+      emojiGrid.appendChild(b);
+    });
+    pickerBuilt = true;
+  }
+  function openPicker(habit) {
+    pickerTarget = habit;
+    buildEmojiGrid();
+    document.getElementById("pickerTitle").textContent = `Icon for "${habit.name}"`;
+    emojiOverlay.classList.remove("hidden");
+  }
+  function closePicker() { emojiOverlay.classList.add("hidden"); pickerTarget = null; }
+  function choose(emo) {
+    if (pickerTarget) { pickerTarget.icon = emo; saveState(); }
+    closePicker();
+    renderSettings();
+  }
+  document.getElementById("emojiClose").addEventListener("click", closePicker);
+  emojiOverlay.addEventListener("click", (e) => { if (e.target === emojiOverlay) closePicker(); });
+
+  /* ---- Export / Import ---- */
+  function exportData() {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `habits-backup-${todayKey()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function importData(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed.habits || !parsed.log) throw new Error("Not a valid backup file.");
+        if (!confirm("Replace all current data with this backup?")) return;
+        state = parsed;
+        state.settings = Object.assign({ nightDimStartHour: 21, nightDimEndHour: 7 }, state.settings || {});
+        saveState();
+        renderSettings();
+        alert("Backup restored.");
+      } catch (e) {
+        alert("Could not import: " + e.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  /* ============================================================
+   * Bedside behaviors: daily reset, night dim, burn-in, wake lock
+   * ========================================================== */
+
+  // 1. Live daily rollover — re-render Today when the date changes while open
+  function checkDayRollover() {
+    if (currentView === "today" && todayKey() !== renderedDay) {
+      renderToday();
+    }
+  }
+
+  // 2. Night dim mode
+  function applyNightMode() {
+    const hr = new Date().getHours();
+    const s = state.settings.nightDimStartHour;
+    const e = state.settings.nightDimEndHour;
+    // Window may wrap past midnight (e.g. 21 -> 7)
+    let inWindow = (s <= e) ? (hr >= s && hr < e) : (hr >= s || hr < e);
+    if (wokeUntil && Date.now() < wokeUntil) inWindow = false;
+    document.body.classList.toggle("night", inWindow);
+  }
+
+  let wokeUntil = 0;
+  function wake() {
+    // Tap anywhere temporarily restores full brightness at night
+    if (document.body.classList.contains("night")) {
+      wokeUntil = Date.now() + 90 * 1000; // 90s awake
+      applyNightMode();
+    }
+  }
+  document.addEventListener("pointerdown", wake, { passive: true });
+
+  // 3. Burn-in protection — gently shift the shell through a small offset cycle
+  const SHIFTS = [[0,0],[3,2],[5,-2],[-3,3],[-5,-3],[2,4],[-2,-4]];
+  let shiftIdx = 0;
+  function burnInShift() {
+    shiftIdx = (shiftIdx + 1) % SHIFTS.length;
+    const [x, y] = SHIFTS[shiftIdx];
+    document.getElementById("app").style.transform = `translate(${x}px, ${y}px)`;
+  }
+
+  // 4. Screen Wake Lock — keep the tablet awake
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      }
+    } catch (e) { /* unsupported or blocked — no-op */ }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      checkDayRollover();
+      applyNightMode();
+      requestWakeLock();
+    }
+  });
+
+  // Re-flow the Today grid when the tablet rotates or the viewport changes
+  let reflowTimer = null;
+  function onViewportChange() {
+    clearTimeout(reflowTimer);
+    reflowTimer = setTimeout(() => { if (currentView === "today") applyGridCols(); }, 150);
+  }
+  window.addEventListener("resize", onViewportChange, { passive: true });
+  window.addEventListener("orientationchange", onViewportChange);
+
+  /* ============================================================
+   * Wire up events
+   * ========================================================== */
+  document.getElementById("toMonth").addEventListener("click", () => {
+    monthCursor = (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })();
+    show("month");
+  });
+  document.getElementById("toSettings").addEventListener("click", () => show("settings"));
+  document.getElementById("monthBack").addEventListener("click", () => show("today"));
+  document.getElementById("settingsBack").addEventListener("click", () => show("today"));
+
+  document.getElementById("prevMonth").addEventListener("click", () => {
+    monthCursor.m--; if (monthCursor.m < 0) { monthCursor.m = 11; monthCursor.y--; }
+    renderMonth();
+  });
+  document.getElementById("nextMonth").addEventListener("click", () => {
+    monthCursor.m++; if (monthCursor.m > 11) { monthCursor.m = 0; monthCursor.y++; }
+    renderMonth();
+  });
+
+  document.getElementById("addHabit").addEventListener("click", addHabit);
+  document.getElementById("newHabit").addEventListener("keydown", (e) => { if (e.key === "Enter") addHabit(); });
+
+  document.getElementById("dimStart").addEventListener("change", (e) => {
+    const v = clampHour(e.target.value, 21); state.settings.nightDimStartHour = v; e.target.value = v; saveState(); applyNightMode();
+  });
+  document.getElementById("dimEnd").addEventListener("change", (e) => {
+    const v = clampHour(e.target.value, 7); state.settings.nightDimEndHour = v; e.target.value = v; saveState(); applyNightMode();
+  });
+  function clampHour(val, fallback) { let n = parseInt(val, 10); if (isNaN(n)) n = fallback; return Math.max(0, Math.min(23, n)); }
+
+  document.getElementById("exportBtn").addEventListener("click", exportData);
+  document.getElementById("importBtn").addEventListener("click", () => document.getElementById("importFile").click());
+  document.getElementById("importFile").addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) importData(e.target.files[0]);
+    e.target.value = "";
+  });
+
+  /* ============================================================
+   * Boot
+   * ========================================================== */
+  show("today");
+  applyNightMode();
+  requestWakeLock();
+
+  setInterval(checkDayRollover, 30 * 1000);   // catch midnight rollover
+  setInterval(applyNightMode, 60 * 1000);     // re-evaluate dim window + wake expiry
+  setInterval(burnInShift, 3 * 60 * 1000);    // nudge pixels every 3 min
+
+  // Expose for debugging / manual verification
+  window.__habits = { get state() { return state; }, save: saveState, render: () => show(currentView) };
+})();
+</script>
+</body>
+</html>
