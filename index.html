@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="mobile-web-app-capable" content="yes" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon-192.png" />
 <title>Habits</title>
 <style>
   :root {
@@ -19,6 +22,7 @@
     --accent: #34c759;        /* done green */
     --accent-deep: #1f7a39;
     --accent-soft: rgba(52, 199, 89, 0.16);
+    --warn: #f5a623;
     --danger: #ff5d52;
     --radius: 20px;
     --tap: rgba(255,255,255,0.06);
@@ -141,6 +145,21 @@
     border-color: var(--accent);
   }
   .tile.done .name .label { color: #eafff0; }
+  .tile .streak {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--warn);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    line-height: 1;
+  }
+  .tile .streak .flame { font-size: 12px; }
+  .tile.done .streak { color: #eafff0; }
 
   .empty-hint {
     grid-column: 1 / -1;
@@ -162,10 +181,109 @@
   }
   #flourish.show { opacity: 1; }
 
+  /* ---------- Progress charts ---------- */
+  .chart-bars {
+    display: flex;
+    align-items: stretch;
+    gap: 5px;
+    height: 112px;
+    margin-bottom: 4px;
+  }
+  .bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+  }
+  .bar-track {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+  .bar-track::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 0;
+    border-top: 1px dashed var(--border);
+    opacity: 0.7;
+  }
+  .bar {
+    width: 68%;
+    max-width: 28px;
+    background: var(--accent);
+    border-radius: 5px 5px 2px 2px;
+    min-height: 3px;
+  }
+  .bar.empty { background: var(--surface-2); min-height: 3px; }
+  .bar.full { box-shadow: 0 0 0 1px var(--accent-deep); }
+  .bar-lab {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-top: 6px;
+    line-height: 1;
+  }
+  .bar-col.is-today .bar-lab { color: var(--accent); font-weight: 700; }
+  .bar-col.is-today .bar { outline: 2px solid var(--accent-deep); outline-offset: 1px; }
+  .bar-col.future { opacity: 0.35; }
+  .chart-month .bar { width: 80%; max-width: 18px; border-radius: 3px 3px 1px 1px; }
+  .chart-month .bar-lab { font-size: 10px; }
+
+  .streak-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .streak-row .s-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .streak-row .s-stat {
+    flex: 0 0 auto;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .streak-row .s-cur {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .streak-row .s-cur.hot { color: var(--accent); }
+  .streak-row .s-best {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 1px;
+  }
+  .backup-note {
+    background: rgba(245, 166, 35, 0.12);
+    border: 1px solid rgba(245, 166, 35, 0.35);
+    color: #f3d39a;
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    margin-bottom: 10px;
+  }
+
   /* ---------- Month / History view ---------- */
   .month-head {
     display: flex; align-items: center; justify-content: center;
-    gap: 14px; margin-bottom: 18px;
+    gap: 14px; margin-bottom: 12px;
   }
   .month-head .title { font-size: 19px; font-weight: 700; min-width: 160px; text-align: center; }
 
@@ -203,7 +321,8 @@
   .view { display: none; flex-direction: column; flex: 1; min-height: 0; }
   .view.active { display: flex; }
   /* Today fills the screen with no scroll; Month & Settings scroll inside themselves */
-  #view-month.active, #view-settings.active { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #view-progress.active, #view-settings.active { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  #view-progress.active > *, #view-settings.active > * { flex-shrink: 0; }
 
   .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 22px 0 10px; font-weight: 700; }
 
@@ -294,12 +413,15 @@
     .date-main { font-size: 22px; }
     .date-sub { display: none; }
     .iconbtn { width: 42px; height: 42px; }
+    .chart-bars { height: 88px; }
+    .tile .streak { top: 6px; right: 8px; font-size: 12px; }
   }
   /* Narrow widths (portrait Fire 7 ~600px): tighten the month grid */
   @media (max-width: 760px) {
     .cell { width: 18px; height: 18px; }
     table.month thead th { min-width: 22px; }
     .habit-label { min-width: 92px; max-width: 120px; font-size: 13px; }
+    .chart-month .bar-col:nth-child(2n) .bar-lab { visibility: hidden; }
   }
 </style>
 </head>
@@ -314,8 +436,8 @@
       </div>
       <div class="spacer"></div>
       <div class="counter" id="counter">0/0</div>
-      <button class="iconbtn" id="toMonth" aria-label="Month history">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+      <button class="iconbtn" id="toProgress" aria-label="Progress">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20V8"/></svg>
       </button>
       <button class="iconbtn" id="toSettings" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -325,17 +447,22 @@
     <div id="flourish"></div>
   </section>
 
-  <!-- ====== MONTH / HISTORY VIEW ====== -->
-  <section id="view-month" class="view">
+  <!-- ====== PROGRESS VIEW ====== -->
+  <section id="view-progress" class="view">
     <header>
-      <button class="iconbtn" id="monthBack" aria-label="Back">
+      <button class="iconbtn" id="progressBack" aria-label="Back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <div class="spacer"></div>
-      <div class="date-block" style="align-items:center"><span class="date-main">History</span></div>
+      <div class="date-block" style="align-items:center"><span class="date-main">Progress</span></div>
       <div class="spacer"></div>
       <div style="width:46px"></div>
     </header>
+
+    <div class="section-title">This week</div>
+    <div id="weekChart"></div>
+
+    <div class="section-title">This month</div>
     <div class="month-head">
       <button class="iconbtn" id="prevMonth" aria-label="Previous month">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -345,10 +472,16 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
       </button>
     </div>
+    <div id="monthChart" class="chart-month"></div>
+
+    <div class="section-title">By habit</div>
     <div class="month-scroll">
       <table class="month" id="monthTable"></table>
     </div>
     <footer class="note" id="monthEmpty"></footer>
+
+    <div class="section-title">Streaks</div>
+    <div id="streakList"></div>
   </section>
 
   <!-- ====== SETTINGS VIEW ====== -->
@@ -381,6 +514,7 @@
     </div>
 
     <div class="section-title">Backup</div>
+    <div class="backup-note hidden" id="backupNote"></div>
     <div class="btn-row">
       <button class="btn" id="exportBtn">⬇︎ Export</button>
       <button class="btn" id="importBtn">⬆︎ Import</button>
@@ -421,7 +555,7 @@
       { id: uid(), name: "Floss",        order: 6, archived: false, icon: "🦷" },
     ],
     log: {},
-    settings: { nightDimStartHour: 21, nightDimEndHour: 7 },
+    settings: { nightDimStartHour: 21, nightDimEndHour: 7, dayStartHour: 4 },
   });
 
   let state = loadState();
@@ -438,7 +572,11 @@
       const parsed = JSON.parse(raw);
       // Shape guard / migration safety
       if (!parsed.habits || !parsed.log) return DEFAULT_STATE();
-      parsed.settings = Object.assign({ nightDimStartHour: 21, nightDimEndHour: 7 }, parsed.settings || {});
+      parsed.settings = Object.assign(
+        { nightDimStartHour: 21, nightDimEndHour: 7, dayStartHour: 4 },
+        parsed.settings || {}
+      );
+      if (typeof parsed.settings.dayStartHour !== "number") parsed.settings.dayStartHour = 4;
       parsed.habits.forEach((h, i) => { if (typeof h.order !== "number") h.order = i; if (h.archived == null) h.archived = false; });
       return parsed;
     } catch (e) {
@@ -453,7 +591,7 @@
   }
 
   /* ============================================================
-   * Date helpers — local time, midnight boundary
+   * Date helpers — local time, day rolls over at dayStartHour (default 4am)
    * ========================================================== */
   function localKey(d) {
     const y = d.getFullYear();
@@ -461,7 +599,26 @@
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   }
-  function todayKey() { return localKey(new Date()); }
+  function dayStartHour() {
+    const h = state.settings && state.settings.dayStartHour;
+    return typeof h === "number" ? h : 4;
+  }
+  /** Calendar date for habit purposes: before 4am still counts as yesterday. */
+  function habitDate(d) {
+    const copy = new Date(d.getTime());
+    copy.setHours(copy.getHours() - dayStartHour());
+    return copy;
+  }
+  function todayKey() { return localKey(habitDate(new Date())); }
+  function parseKey(key) {
+    const parts = key.split("-").map(Number);
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+  function shiftKey(key, days) {
+    const d = parseKey(key);
+    d.setDate(d.getDate() + days);
+    return localKey(d);
+  }
 
   const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -542,12 +699,51 @@
     saveState();
   }
 
+  /* Current streak: consecutive days ending today (or yesterday if today isn't checked yet).
+     Best streak: longest consecutive run in the log. */
+  function currentStreak(habitId) {
+    const t = todayKey();
+    let start = t;
+    if (!isDone(t, habitId)) {
+      start = shiftKey(t, -1);
+      if (!isDone(start, habitId)) return 0;
+    }
+    let n = 0;
+    let k = start;
+    while (isDone(k, habitId)) {
+      n++;
+      k = shiftKey(k, -1);
+    }
+    return n;
+  }
+  function bestStreak(habitId) {
+    const dates = Object.keys(state.log)
+      .filter((k) => isDone(k, habitId))
+      .sort();
+    if (dates.length === 0) return 0;
+    let best = 1, run = 1;
+    for (let i = 1; i < dates.length; i++) {
+      if (shiftKey(dates[i - 1], 1) === dates[i]) {
+        run++;
+        if (run > best) best = run;
+      } else {
+        run = 1;
+      }
+    }
+    return best;
+  }
+  function doneCount(dateKey) {
+    const habits = activeHabits();
+    const done = doneSet(dateKey);
+    return habits.filter((h) => done.has(h.id)).length;
+  }
+
   /* ============================================================
    * View router
    * ========================================================== */
   const views = {
     today: document.getElementById("view-today"),
-    month: document.getElementById("view-month"),
+    progress: document.getElementById("view-progress"),
     settings: document.getElementById("view-settings"),
   };
   let currentView = "today";
@@ -556,7 +752,7 @@
     currentView = view;
     Object.keys(views).forEach(k => views[k].classList.toggle("active", k === view));
     if (view === "today") renderToday();
-    if (view === "month") renderMonth();
+    if (view === "progress") renderProgress();
     if (view === "settings") renderSettings();
     window.scrollTo(0, 0);
   }
@@ -592,7 +788,7 @@
 
   function renderToday() {
     renderedDay = todayKey();
-    const now = new Date();
+    const now = habitDate(new Date());
     document.getElementById("todayMain").textContent =
       `${WEEKDAYS[now.getDay()].slice(0,3)}, ${MONTHS_SHORT[now.getMonth()]} ${now.getDate()}`;
     document.getElementById("todaySub").textContent = WEEKDAYS[now.getDay()];
@@ -618,6 +814,14 @@
         emojiEl.textContent = ic;
         if (!ic) emojiEl.style.display = "none";
         tile.querySelector(".label").textContent = h.name;
+        const streak = currentStreak(h.id);
+        if (streak >= 2) {
+          const badge = document.createElement("span");
+          badge.className = "streak";
+          badge.innerHTML = `<span class="flame">🔥</span><span></span>`;
+          badge.querySelector("span:last-child").textContent = String(streak);
+          tile.appendChild(badge);
+        }
         tile.addEventListener("click", () => {
           toggle(todayKey(), h.id);
           renderToday();
@@ -641,12 +845,95 @@
   }
 
   /* ============================================================
-   * MONTH / HISTORY VIEW
+   * PROGRESS VIEW — week bars, month bars, streaks, heatmap
    * ========================================================== */
-  let monthCursor = (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })();
+  let monthCursor = (() => { const d = habitDate(new Date()); return { y: d.getFullYear(), m: d.getMonth() }; })();
   const monthTable = document.getElementById("monthTable");
   const monthTitle = document.getElementById("monthTitle");
   const monthEmpty = document.getElementById("monthEmpty");
+
+  function renderBarChart(container, keys, labelFn) {
+    const total = activeHabits().length;
+    container.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "chart-bars";
+    const tKey = todayKey();
+    keys.forEach((key) => {
+      const n = doneCount(key);
+      const col = document.createElement("div");
+      col.className = "bar-col" + (key === tKey ? " is-today" : "") + (key > tKey ? " future" : "");
+      const track = document.createElement("div");
+      track.className = "bar-track";
+      const bar = document.createElement("div");
+      const pct = total > 0 ? (n / total) * 100 : 0;
+      bar.className = "bar" + (n === 0 ? " empty" : "") + (total > 0 && n === total ? " full" : "");
+      bar.style.height = (n === 0 ? 3 : Math.max(pct, 8)) + "%";
+      bar.title = `${n}/${total}`;
+      track.appendChild(bar);
+      const lab = document.createElement("div");
+      lab.className = "bar-lab";
+      lab.textContent = labelFn(key);
+      col.appendChild(track);
+      col.appendChild(lab);
+      wrap.appendChild(col);
+    });
+    container.appendChild(wrap);
+  }
+
+  function renderWeekChart() {
+    const t = todayKey();
+    const keys = [];
+    for (let i = 6; i >= 0; i--) keys.push(shiftKey(t, -i));
+    renderBarChart(document.getElementById("weekChart"), keys, (key) =>
+      WEEKDAYS[parseKey(key).getDay()].slice(0, 1)
+    );
+  }
+
+  function renderMonthChart(y, m, daysInMonth) {
+    const keys = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      keys.push(`${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+    }
+    renderBarChart(document.getElementById("monthChart"), keys, (key) =>
+      String(parseKey(key).getDate())
+    );
+  }
+
+  function renderStreakList() {
+    const el = document.getElementById("streakList");
+    el.innerHTML = "";
+    const habits = activeHabits()
+      .map((h) => ({ h, cur: currentStreak(h.id), best: bestStreak(h.id) }))
+      .sort((a, b) => b.cur - a.cur || b.best - a.best);
+    if (habits.length === 0) return;
+    habits.forEach(({ h, cur, best }) => {
+      const row = document.createElement("div");
+      row.className = "streak-row";
+      const name = document.createElement("div");
+      name.className = "s-name";
+      const ic = iconForHabit(h);
+      name.textContent = (ic ? ic + "  " : "") + h.name;
+      const stat = document.createElement("div");
+      stat.className = "s-stat";
+      const curEl = document.createElement("div");
+      curEl.className = "s-cur" + (cur >= 2 ? " hot" : "");
+      curEl.textContent = cur >= 2 ? `🔥 ${cur}` : String(cur);
+      const bestEl = document.createElement("div");
+      bestEl.className = "s-best";
+      bestEl.textContent = `best ${best}`;
+      stat.appendChild(curEl);
+      stat.appendChild(bestEl);
+      row.appendChild(name);
+      row.appendChild(stat);
+      el.appendChild(row);
+    });
+  }
+
+  function renderProgress() {
+    renderWeekChart();
+    renderStreakList();
+    renderMonth();
+  }
 
   function renderMonth() {
     const { y, m } = monthCursor;
@@ -654,12 +941,13 @@
     const daysInMonth = new Date(y, m + 1, 0).getDate();
     const habits = activeHabits();
     const tKey = todayKey();
-    const todayD = new Date();
+    const todayD = habitDate(new Date());
     const isCurrentMonth = (y === todayD.getFullYear() && m === todayD.getMonth());
 
-    // Disable next button past current month
     document.getElementById("nextMonth").style.visibility =
       (y > todayD.getFullYear() || (y === todayD.getFullYear() && m >= todayD.getMonth())) ? "hidden" : "visible";
+
+    renderMonthChart(y, m, daysInMonth);
 
     if (habits.length === 0) {
       monthTable.innerHTML = "";
@@ -760,6 +1048,27 @@
 
     document.getElementById("dimStart").value = state.settings.nightDimStartHour;
     document.getElementById("dimEnd").value = state.settings.nightDimEndHour;
+    renderBackupNote();
+  }
+
+  function renderBackupNote() {
+    const note = document.getElementById("backupNote");
+    const last = state.settings.lastExportAt;
+    const now = Date.now();
+    const fourteen = 14 * 24 * 60 * 60 * 1000;
+    if (!last) {
+      note.textContent = "Data lives only on this tablet. Export a backup so you don't lose history.";
+      note.classList.remove("hidden");
+      return;
+    }
+    const age = now - last;
+    if (age >= fourteen) {
+      const days = Math.floor(age / (24 * 60 * 60 * 1000));
+      note.textContent = `Last backup was ${days} day${days === 1 ? "" : "s"} ago. Export again to keep a copy.`;
+      note.classList.remove("hidden");
+    } else {
+      note.classList.add("hidden");
+    }
   }
 
   function miniBtn(label, onClick) {
@@ -831,6 +1140,8 @@
 
   /* ---- Export / Import ---- */
   function exportData() {
+    state.settings.lastExportAt = Date.now();
+    saveState();
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -838,6 +1149,7 @@
     a.download = `habits-backup-${todayKey()}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    renderBackupNote();
   }
 
   function importData(file) {
@@ -848,7 +1160,10 @@
         if (!parsed.habits || !parsed.log) throw new Error("Not a valid backup file.");
         if (!confirm("Replace all current data with this backup?")) return;
         state = parsed;
-        state.settings = Object.assign({ nightDimStartHour: 21, nightDimEndHour: 7 }, state.settings || {});
+        state.settings = Object.assign(
+          { nightDimStartHour: 21, nightDimEndHour: 7, dayStartHour: 4 },
+          state.settings || {}
+        );
         saveState();
         renderSettings();
         alert("Backup restored.");
@@ -865,8 +1180,14 @@
 
   // 1. Live daily rollover — re-render Today when the date changes while open
   function checkDayRollover() {
-    if (currentView === "today" && todayKey() !== renderedDay) {
-      renderToday();
+    const t = todayKey();
+    if (t === renderedDay) return;
+    if (currentView === "today") renderToday();
+    else if (currentView === "progress") {
+      renderedDay = t;
+      renderProgress();
+    } else {
+      renderedDay = t;
     }
   }
 
@@ -930,12 +1251,13 @@
   /* ============================================================
    * Wire up events
    * ========================================================== */
-  document.getElementById("toMonth").addEventListener("click", () => {
-    monthCursor = (() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })();
-    show("month");
+  document.getElementById("toProgress").addEventListener("click", () => {
+    const d = habitDate(new Date());
+    monthCursor = { y: d.getFullYear(), m: d.getMonth() };
+    show("progress");
   });
   document.getElementById("toSettings").addEventListener("click", () => show("settings"));
-  document.getElementById("monthBack").addEventListener("click", () => show("today"));
+  document.getElementById("progressBack").addEventListener("click", () => show("today"));
   document.getElementById("settingsBack").addEventListener("click", () => show("today"));
 
   document.getElementById("prevMonth").addEventListener("click", () => {
@@ -972,12 +1294,23 @@
   applyNightMode();
   requestWakeLock();
 
-  setInterval(checkDayRollover, 30 * 1000);   // catch midnight rollover
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("./sw.js").catch(() => { /* offline / unsupported */ });
+  }
+
+  setInterval(checkDayRollover, 30 * 1000);   // catch 4am rollover
   setInterval(applyNightMode, 60 * 1000);     // re-evaluate dim window + wake expiry
   setInterval(burnInShift, 3 * 60 * 1000);    // nudge pixels every 3 min
 
   // Expose for debugging / manual verification
-  window.__habits = { get state() { return state; }, save: saveState, render: () => show(currentView) };
+  window.__habits = {
+    get state() { return state; },
+    save: saveState,
+    render: () => show(currentView),
+    todayKey,
+    currentStreak,
+    bestStreak,
+  };
 })();
 </script>
 </body>
